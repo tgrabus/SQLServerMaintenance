@@ -1,0 +1,166 @@
+USE master;
+GO
+
+IF DATABASEPROPERTYEX(N'Demo', N'Version') > 0
+    BEGIN
+        ALTER DATABASE Demo SET SINGLE_USER WITH ROLLBACK IMMEDIATE;
+        DROP DATABASE Demo;
+    END;
+GO
+
+IF DATABASEPROPERTYEX(N'Demo2', N'Version') > 0
+    BEGIN
+        ALTER DATABASE Demo2 SET SINGLE_USER WITH ROLLBACK IMMEDIATE;
+        DROP DATABASE Demo2;
+    END;
+GO
+
+IF DATABASEPROPERTYEX(N'Demo3', N'Version') > 0
+    BEGIN
+        ALTER DATABASE Demo3 SET SINGLE_USER WITH ROLLBACK IMMEDIATE;
+        DROP DATABASE Demo3;
+    END;
+GO
+
+CREATE DATABASE Demo 
+ON PRIMARY (
+	NAME = N'Demo_data',
+	FILENAME = N'C:\Program Files\Microsoft SQL Server\MSSQL11.MSSQLSERVER\MSSQL\DATA\Demo_data.mdf'
+)
+LOG ON (
+	NAME = N'Demo_log',
+	FILENAME =  N'C:\Program Files\Microsoft SQL Server\MSSQL11.MSSQLSERVER\MSSQL\DATA\Demo_log.ldf',
+	SIZE = 5MB,
+	FILEGROWTH = 1MB
+);
+GO
+
+CREATE DATABASE Demo2 
+ON PRIMARY (
+	NAME = N'Demo2_data',
+	FILENAME = N'C:\Program Files\Microsoft SQL Server\MSSQL11.MSSQLSERVER\MSSQL\DATA\Demo2_data.mdf'
+)
+LOG ON (
+	NAME = N'Demo2_log',
+	FILENAME =  N'C:\Program Files\Microsoft SQL Server\MSSQL11.MSSQLSERVER\MSSQL\DATA\Demo2_log.ldf',
+	SIZE = 5MB,
+	FILEGROWTH = 1MB
+);
+GO
+
+CREATE DATABASE Demo3 
+ON PRIMARY (
+	NAME = N'Demo3_data',
+	FILENAME = N'C:\Program Files\Microsoft SQL Server\MSSQL11.MSSQLSERVER\MSSQL\DATA\Demo3_data.mdf'
+)
+LOG ON (
+	NAME = N'Demo3_log',
+	FILENAME =  N'C:\Program Files\Microsoft SQL Server\MSSQL11.MSSQLSERVER\MSSQL\DATA\Demo3_log.ldf',
+	SIZE = 5MB,
+	FILEGROWTH = 1MB
+);
+GO
+
+-- turn off page protection
+ALTER DATABASE Demo SET PAGE_VERIFY NONE;
+ALTER DATABASE Demo2 SET PAGE_VERIFY NONE;
+ALTER DATABASE Demo3 SET PAGE_VERIFY NONE;
+GO
+
+-- set single user only
+ALTER DATABASE Demo SET SINGLE_USER WITH ROLLBACK IMMEDIATE
+ALTER DATABASE Demo2 SET SINGLE_USER WITH ROLLBACK IMMEDIATE
+ALTER DATABASE Demo3 SET SINGLE_USER WITH ROLLBACK IMMEDIATE
+GO
+
+-- Init demo2 db
+USE Demo2;
+GO
+
+CREATE TABLE BigRows (
+    c1 int IDENTITY,
+    c2 char(8000) DEFAULT 'a',
+);
+GO
+
+CREATE CLUSTERED INDEX CL_c1 ON BigRows(c1);
+GO
+
+INSERT INTO dbo.BigRows DEFAULT VALUES;
+GO 10
+
+-- Init demo3 db
+USE Demo3;
+GO
+
+CREATE TABLE BigRows (
+    c1 int IDENTITY,
+    c2 varchar(5000) DEFAULT REPLICATE('a', 5000),
+    c3 varchar(5000) DEFAULT REPLICATE('b', 5000)
+);
+GO
+
+INSERT INTO dbo.BigRows DEFAULT VALUES;
+GO 10
+
+USE master;
+GO
+
+-------------------------------------------------------------------
+
+-- Corrupt Demo --
+DBCC WRITEPAGE(N'Demo', 1, 0, 0, 4, 0x00000000, 1); -- file header
+GO
+
+-- Corrupt Demo2 --
+DBCC IND('Demo2', 'BigRows', -1);
+GO
+DBCC WRITEPAGE(N'Demo2', 1, X, 0, 2, 0x0000, 1); -- index root page
+GO
+
+-- Corrupt Demo3 --
+DBCC IND('Demo3', 'BigRows', -1);
+GO
+DBCC WRITEPAGE(N'Demo3', 1, X, 0, 2, 0x0000, 1); -- overflown page
+GO
+
+-- set multi user
+ALTER DATABASE Demo SET MULTI_USER WITH ROLLBACK IMMEDIATE
+ALTER DATABASE Demo2 SET MULTI_USER WITH ROLLBACK IMMEDIATE
+ALTER DATABASE Demo3 SET MULTI_USER WITH ROLLBACK IMMEDIATE
+GO
+
+DELETE FROM msdb.dbo.suspect_pages
+EXEC sys.sp_cycle_errorlog
+GO
+
+USE master;
+GO
+
+-------------------------------------------------------------------
+
+-- Try Repair Demo --
+DBCC CHECKDB('Demo') WITH NO_INFOMSGS;
+ALTER DATABASE Demo SET SINGLE_USER WITH ROLLBACK IMMEDIATE
+DBCC CHECKDB('Demo', REPAIR_ALLOW_DATA_LOSS) WITH NO_INFOMSGS;
+GO
+
+-- Try Repair Demo2 --
+DBCC CHECKDB('Demo2') WITH NO_INFOMSGS;
+ALTER DATABASE Demo2 SET SINGLE_USER WITH ROLLBACK IMMEDIATE
+DBCC CHECKDB('Demo2', REPAIR_ALLOW_DATA_LOSS) WITH NO_INFOMSGS;
+GO
+
+-- show if any records were deleted in demo2
+SELECT COUNT(*) FROM Demo2.dbo.BigRows
+GO
+
+-- Try Repair Demo3 --
+DBCC CHECKDB('Demo3') WITH NO_INFOMSGS;
+ALTER DATABASE Demo3 SET SINGLE_USER WITH ROLLBACK IMMEDIATE
+DBCC CHECKDB('Demo3', REPAIR_ALLOW_DATA_LOSS) WITH NO_INFOMSGS;
+GO
+
+-- show if any records were deleted in demo2
+SELECT COUNT(*) FROM Demo3.dbo.BigRows;
+GO
