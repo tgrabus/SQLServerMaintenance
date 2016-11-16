@@ -3,15 +3,23 @@
 -- Show available statistics including columns for table
 EXEC SP_HELPSTATS @OBJNAME = 'Person.Person', @RESULTS = 'ALL'; 
 
--- Lack of statistics for FirstName column, engine will create one automatically if AUTO_CREATE_STATISTICS option is true
-SELECT * 
-FROM Person.Person 
-WHERE FirstName = 'Megan'
-GO
-
 -- Display statistics
 DBCC SHOW_STATISTICS ('Person.Person', IX_Person_LastName_FirstName_MiddleName);
 GO
+
+-- Density examples
+DBCC SHOW_STATISTICS ('Person.Person', IX_Person_LastName_FirstName_MiddleName)
+WITH DENSITY_VECTOR;
+GO
+
+SELECT 1 / CAST(COUNT(*) AS FLOAT)
+FROM (SELECT DISTINCT LastName FROM Person.Person) AS A
+
+SELECT 1 / CAST(COUNT(*) AS FLOAT)
+FROM (SELECT DISTINCT LastName, FirstName FROM Person.Person) AS A
+
+SELECT 1 / CAST(COUNT(*) AS FLOAT)
+FROM (SELECT DISTINCT LastName, FirstName, MiddleName FROM Person.Person) AS A
 
 -- CASE 1. Equality with known value (step in histogram)
 SELECT *
@@ -60,6 +68,11 @@ FROM Person.Person
 WHERE LastName < 'Alexander'
 
 -- CASE 7. Equality with no stats  (Rule based estimation - x ^ 0.75)
+-- Lack of statistics for FirstName column, engine will create one automatically if AUTO_CREATE_STATISTICS option is true
+SELECT *
+FROM Person.Person 
+WHERE FirstName = 'Megan'
+
 -- Turn off statistics auto creation
 ALTER DATABASE AdventureWorks2012 SET AUTO_CREATE_STATISTICS OFF
 -- Drop active statistics for FirstName column
